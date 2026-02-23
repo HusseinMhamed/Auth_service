@@ -1,24 +1,99 @@
-import User from "../models/User.mjs"
-import bcrypt from 'bcrypt'
-const register =  async (req,res)=>{
-    const {first_name,last_name,email,password} = req.body;
-    if(!first_name || !last_name || !email || password){
-        return res.status(400).json({message:"please fill all fields"})
-    }
-    const foundUser = await User.findOne({ email:email }).exec();
-    if(foundUser){
-        return res.status(401).json({message:"User already exist"})
-    }
-   const hashedpassword = await bcrypt.hash(password,10);
-   const user = await User.create({
+import User from "../models/User.mjs";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+
+const register = async (req, res) => {
+  try{
+  const { first_name, last_name, email, password } = req.body;
+  if (!first_name || !last_name || !email || !password) {
+    return res.status(400).json({ message: "please fill all fields" });
+  }
+  const foundUser = await User.findOne({ email: email }).exec();
+  if (foundUser) {
+    return res.status(401).json({ message: "User already exist" });
+  }
+  const hashedpassword = await bcrypt.hash(password, 10);
+  const user = await User.create({
     first_name,
     last_name,
     email,
-    password: hashedpassword 
-   })
-   const accessTocken = jwt.sign({
-    UserInfo:{
-        id:user._id
-    }
-   })
+    password: hashedpassword,
+  });
+  const accessToken = jwt.sign(
+    {
+      UserInfo: { id: user._id },
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: "15m" },
+  );
+  const refreshToken = jwt.sign(
+    {
+      UserInfo: { id: user._id },
+    },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: "7d" },
+  );
+  res.cookie("jwt", refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "None",
+    maxAge: 1000 * 60 * 60 * 24 * 7,
+  });
+  res.json({
+    accessToken,
+    email: user.email,
+    first_name: user.first_name,
+    last_name: user.last_name,
+  });
+
 }
+catch(err){
+  res.status(500).json({message:"internal server error"});
+}
+};
+
+const login = async (req, res) => {
+  try{
+  const { email, password } = req.body;
+  if (!email || !password) {
+   return res.status(400).json({ message: "please fill all feilds" });
+  }
+  const foundUser = await User.findOne({ email: email }).exec();
+  if (!foundUser){
+   return res.status(401).json({message:"incorrect email"})
+  }
+  const matched = await bcrypt.compare(password, foundUser.password);
+  if (!matched) {
+   return res.status(401).json({ message: "incorrect password" });
+  }
+  const accessToken = jwt.sign(
+    { UserInfo: { id: foundUser._id } },
+    process.env.ACCESS_TOKEN_SECRET,
+    {
+      expiresIn: "15m",
+    },
+  );
+  const refreshToken = jwt.sign(
+    { UserInfo: { id: foundUser._id } },
+    process.env.REFRESH_TOKEN_SECRET,
+    { expiresIn: "7d" },
+  );
+  res.cookie("jwt", refreshToken ,{
+    httpOnly:true,
+    secure: true,
+    sameSite:"None",
+    maxAge: 60*60*1000*24*7
+  })
+  res.json({
+    accessToken,
+    email: foundUser.email,
+    first_name: foundUser.first_name,
+    last_name: foundUser.last_name
+  })
+}
+catch(err){
+  res.status(500).json({message:"internal server error"})
+}
+};
+
+export default { register , login };
